@@ -1,0 +1,116 @@
+name: k8s
+
+mgmt:
+  network: kind
+  ipv4-subnet: 172.18.0.0/16
+  ipv6-subnet: fc00:f853:ccd:e793::/64
+
+topology:
+  kinds:
+    linux:
+      cmd: bash
+      #image: nicolaka/netshoot:latest
+      image: quay.io/frrouting/frr:8.5.3
+  nodes:
+    br0:
+      kind: ovs-bridge
+    br1:
+      kind: ovs-bridge
+    br2:
+      kind: ovs-bridge
+    inthost0:
+      kind: linux
+      network-mode: container:clab1-k8s-control-plane
+      exec:
+        - apk add curl
+        - sysctl -w net.ipv4.ip_nonlocal_bind=1
+        - sysctl -w net.ipv4.ip_forward=1
+        - ip addr add 10.227.0.2/24 dev net0
+        - ip route add 10.237.0.0/24 via 10.227.0.254
+    inthost1:
+      kind: linux
+      network-mode: container:clab1-k8s-worker
+      exec:
+        - sysctl -w net.ipv4.ip_nonlocal_bind=1
+        - sysctl -w net.ipv4.ip_forward=1
+        - ip addr add 10.227.0.3/24 dev net0
+        - ip route add 10.237.0.0/24 via 10.227.0.254
+    inthost2:
+      kind: linux
+      network-mode: container:clab1-k8s-worker2
+      exec:
+        - sysctl -w net.ipv4.ip_nonlocal_bind=1
+        - sysctl -w net.ipv4.ip_forward=1
+        - ip addr add 10.227.0.4/24 dev net0
+        - ip route add 10.237.0.0/24 via 10.227.0.254
+    exthost0:
+      kind: linux
+      network-mode: container:clab2-k8s-control-plane
+      exec:
+      - ip addr add 10.237.0.2/24 dev net0
+      - ip route add 10.227.0.0/24 via 10.237.0.254
+      - ip route add 10.228.0.0/24 via 10.237.0.254
+      - ip route add 10.10.0.0/16 via 10.237.0.254
+      - ip route add 10.11.0.0/16 via 10.237.0.254
+    exthost1:
+      kind: linux
+      network-mode: container:clab2-k8s-worker
+      exec:
+      - ip addr add 10.237.0.3/24 dev net0
+      - ip route add 10.227.0.0/24 via 10.237.0.254
+      - ip route add 10.228.0.0/24 via 10.237.0.254
+      - ip route add 10.10.0.0/16 via 10.237.0.254
+      - ip route add 10.11.0.0/16 via 10.237.0.254
+    exthost2:
+      kind: linux
+      network-mode: container:clab2-k8s-worker2
+      exec:
+      - ip addr add 10.237.0.4/24 dev net0
+      - ip route add 10.227.0.0/24 via 10.237.0.254
+      - ip route add 10.228.0.0/24 via 10.237.0.254
+      - ip route add 10.10.0.0/16 via 10.237.0.254
+      - ip route add 10.11.0.0/16 via 10.237.0.254
+    exthost4:
+      kind: linux
+      image: quay.io/solo-io/echo-server
+      exec:
+      - ip addr add 10.237.0.8/24 dev net0
+      - ip route replace default via 10.237.0.254
+    intbgp1:
+      kind: linux
+      exec:
+        - ip addr add 10.227.0.254/24 dev eth4
+        - apk add curl
+        - sysctl -w net.ipv4.ip_nonlocal_bind=1
+        - sysctl -w net.ipv4.ip_forward=1
+        - sed -i -e 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
+        - touch /etc/frr/vtysh.conf
+        - /usr/lib/frr/frrinit.sh start
+      binds:
+        - ./conf.d/intbgp1_frr.conf:/etc/frr/frr.conf
+    extbgp1:
+      kind: linux
+      exec:
+        - ip addr add 10.237.0.254/24 dev eth4
+        - apk add curl
+        - sysctl -w net.ipv4.ip_nonlocal_bind=1
+        - sysctl -w net.ipv4.ip_forward=1
+        - sed -i -e 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
+        - touch /etc/frr/vtysh.conf
+        - /usr/lib/frr/frrinit.sh start
+      binds:
+        - ./conf.d/extbgp1_frr.conf:/etc/frr/frr.conf
+  links:
+    - endpoints: ["br0:ovsp4","intbgp1:eth4"]
+    - endpoints: ["br0:ovsp8","inthost0:net0"]
+    - endpoints: ["br0:ovsp9","inthost1:net0"]
+    - endpoints: ["br0:ovsp10","inthost2:net0"]
+    #
+    - endpoints: ["br1:ovsp13","intbgp1:eth1"]
+    - endpoints: ["br1:ovsp15","extbgp1:eth1"]
+    #
+    - endpoints: ["br2:ovsp19","extbgp1:eth4"]
+    - endpoints: ["br2:ovsp23","exthost0:net0"]
+    - endpoints: ["br2:ovsp24","exthost1:net0"]
+    - endpoints: ["br2:ovsp25","exthost2:net0"]
+    - endpoints: ["br2:ovsp27","exthost4:net0"]
